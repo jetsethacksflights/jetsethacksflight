@@ -1,61 +1,100 @@
-import os, time, requests
+# scraper_bot/providers/amadeus.py
+import os
 
-HOST = os.getenv("AMADEUS_HOST", "https://test.api.amadeus.com")
-KEY = os.getenv("AMADEUS_API_KEY")
-SECRET = os.getenv("AMADEUS_API_SECRET")
+# Amadeus SDK
+try:
+    from amadeus import Client, ResponseError
+except Exception:  # SDK not installed or import error during local runs
+    Client = None
+    ResponseError = Exception  # fallback
 
-_token = {"v": None, "exp": 0}
+AMADEUS_API_KEY = os.getenv("AMADEUS_API_KEY")
+AMADEUS_API_SECRET = os.getenv("AMADEUS_API_SECRET")
 
-def _get_token():
-    if not KEY or not SECRET:
+def _get_client():
+    """
+    Return an Amadeus client or None if keys/SDK are missing.
+    """
+    if not (AMADEUS_API_KEY and AMADEUS_API_SECRET and Client):
         return None
-    if _token["v"] and time.time() < _token["exp"] - 30:
-        return _token["v"]
-    r = requests.post(
-        f"{HOST}/v1/security/oauth2/token",
-        data={"grant_type":"client_credentials","client_id":KEY,"client_secret":SECRET},
-        timeout=15
-    )
-    r.raise_for_status()
-    j = r.json()
-    _token["v"] = j.get("access_token")
-    _token["exp"] = time.time() + int(j.get("expires_in", 1799))
-    return _token["v"]
+    try:
+        return Client(client_id=AMADEUS_API_KEY, client_secret=AMADEUS_API_SECRET)
+    except Exception:
+        return None
 
-def search_amadeus(origin, dest, date, *, cabin="ECONOMY", currency="AUD", adults=1, max_results=5, timeout=20):
-    tok = _get_token()
-    if not tok:
+def search_amadeus(origin: str, dest: str, depart_date: str, *,
+                   return_date: str | None = None,
+                   passengers: int = 1,
+                   cabin: str = "ECONOMY",         # ECONOMY | PREMIUM_ECONOMY | BUSINESS | FIRST
+                   currency: str = "AUD",
+                   nonstop: bool = False,
+                   max_results: int = 5):
+    """
+    Query Amadeus Flight Offers Search and normalize to the shape the app expects.
+    Returns [] gracefully if keys are missing or the API call fails.
+    """
+    amadeus = _get_client()
+    if not amadeus:
         return []
-    url = f"{HOST}/v2/shopping/flight-offers"
+
     params = {
-        "originLocationCode": origin, "destinationLocationCode": dest,
-        "departureDate": date, "adults": str(adults),
-        "currencyCode": currency, "max": str(max_results),
-        "travelClass": cabin.upper()
+        "originLocationCode": origin,
+        "destinationLocationCode": dest,
+        "departureDate": depart_date,
+        "adults": int(passengers),
+        "nonStop": bool(nonstop),
+        "currencyCode": currency,
+        "travelClass": str(cabin).upper(),  # ensure valid value
+        "max": int(max_results),
     }
-    headers = {"Authorization": f"Bearer {tok}"}
-    r = requests.get(url, headers=headers, params=params, timeout=timeout)
-    r.raise_for_status()
-    data = r.json().get("data", [])
+    if return_date:
+        params["returnDate"] = return_date
+
+    try:
+        resp = amadeus.shopping.flight_offers_search.get(**params)
+        offers = getattr(resp, "data", []) or []
+    except ResponseError:
+        return []
+    except Exception:
+        return []
+
     out = []
-    for it in data:
+    for off in offers:
+        # Price
+        price = None
         try:
-            price = float(it.get("price", {}).get("grandTotal") or it.get("price", {}).get("total"))
+            price = float(off.get("price", {}).get("grandTotal"))
         except Exception:
-            price = None
-        carrier = ""; flight_no = ""; operated_by = ""
+            pass
+
+        # Try to read first segment/carrier/flight number
+        carrier = ""
+        flight_no = ""
         try:
-            seg = it.get("itineraries", [])[0].get("segments", [])[0]
-            carrier = seg.get("carrierCode", "") or ""
-            flight_no = f"{carrier}{seg.get('number','')}"
-            operated_by = seg.get("operating", {}).get("carrierCode", carrier)
+            itins = off.get("itineraries", [])
+            segs = itins[0].get("segments", []) if itins else []
+            if segs:
+                carrier = segs[0].get("carrierCode", "") or ""
+                # flight number sometimes split across number + carrier
+                fnum = segs[0].get("number", "")
+                flight_no = f"{carrier}{fnum}" if carrier or fnum else ""
         except Exception:
-            operated_by = carrier or ""
+            pass
+
         out.append({
-            "provider": "Amadeus", "provider_code": "AM",
-            "aud": price, "url": "",
-            "carrier": carrier or operated_by, "flight_number": flight_no,
-            "operated_by": operated_by
+            "provider": "Amadeus",
+            "provider_code": "AM",
+            "aud": price,
+            "url": "",                 # Amadeus doesn't provide a public deeplink
+            "carrier": carrier,
+            "flight_number": flight_no,
+            "operated_by": carrier,
         })
+
     return out
+
+# Backward‑compat alias (so old imports still work)
+def search_amadeus_flights(*args, **kwargs):
+    return search_amadeus(*args, **kwargs)
+
 
