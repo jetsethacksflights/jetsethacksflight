@@ -1,7 +1,7 @@
-import json
-from scraper_bot.providers.google_deeplink import build_google_flights_url
-from scraper_bot.providers.kiwi import search_kiwi
-from scraper_bot.providers.amadeus import search_amadeus_flights
+from providers.google_deeplink import build_google_flights_url
+from providers.kiwi import search_kiwi
+from providers.amadeus import search_amadeus_flights
+
 
 
 OUTPUT_FILE = "data/live_deals.json"
