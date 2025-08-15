@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "last_updated": "2025-08-15T08:59:35.492041Z"
+  },
+  "items": [
+    {
+      "from": "SYD",
+      "to": "DPS",
+      "cabin": "economy",
+      "provider": "Google Flights (link)",
+      "provider_code": "GF",
+      "flight_number": "",
+      "operated_by": "",
+      "aud": null,
+      "url": "https://www.google.com/flights?hl=en#flt=SYD.DPS.2025-08-19;c:e;px:1",
+      "ts": "2025-08-15T08:59:33.925024Z"
+    }
+  ]
+}
