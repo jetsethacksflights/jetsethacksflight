@@ -1,0 +1,52 @@
+name: Update Flight Deals
+
+on:
+  schedule:
+    - cron: '0 8 * * *'    # Runs daily at 8 AM UTC
+  workflow_dispatch:       # Allows manual run
+
+jobs:
+  scrape-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout scraper
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run scraper
+        run: python scraper_bot/scrape.py
+
+      - name: Upload to website repo
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const { Buffer } = require('buffer');
+
+            const filePath = 'data/live_deals.json';
+            if (!fs.existsSync(filePath)) {
+              throw new Error('live_deals.json not found! Did the scraper run?');
+            }
+
+            const content = fs.readFileSync(filePath);
+            const encoded = Buffer.from(content).toString('base64');
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: 'Jetsethacksflights',
+              repo: 'jetsethacksflights_v2',
+              path: 'data/live_deals.json',
+              message: '🤖 Update flight deals [skip ci]',
+              content: encoded,
+              committer: {
+                name: 'Flight Bot',
+                email: 'bot@jetsethacks.com'
+              }
+            });
